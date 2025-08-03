@@ -4,14 +4,20 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI-Powered Job Assistant</title>
+
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Google Fonts: Inter -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <!-- PDF.js Library -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.min.js"></script>
+
+    <!-- PDF.js (Latest Stable) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.12.313/pdf.min.js"></script>
     <script>
-        // Required for pdf.js to work
-        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.worker.min.js`;
+        // Required for PDF.js to work without deprecated warnings
+        pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.12.313/pdf.worker.min.js";
     </script>
+
     <style>
         /* Custom Styles */
         body {
@@ -234,12 +240,23 @@
         const checkAtsBtn = document.getElementById('checkAts');
         const findJobsBtn = document.getElementById('findJobsBtn');
         
-        const GEMINI_API_KEY = "AIzaSyBPmQHaY-Bz53d-X3cYyPcPJz3RW7IixcQ";
+        async function getGeminiResponse() {
+        const prompt = document.getElementById("promptInput").value;
+
+        const res = await fetch("https://webdevin100-days-backend.onrender.com/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: prompt }),
+        });
+
+        const data = await res.json();
+        document.getElementById("response").innerText = data.response;
+    }
 
         // --- Theme Management ---
         const sunIcon = `<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>`;
         const moonIcon = `<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>`;
-
+        
         function setTheme(theme) {
             if (theme === 'dark') {
                 body.classList.remove('light');
@@ -295,22 +312,22 @@
 
         // --- API & AI Logic ---
         async function callGeminiAPI(prompt) {
-            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`;
-            
+            const apiUrl = "https://webdevin100-days-backend.onrender.com/gemini";  // or your deployed Render backend
+
             try {
                 const response = await fetch(apiUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+                    body: JSON.stringify({ prompt })
                 });
 
                 if (!response.ok) {
                     const errorData = await response.json();
-                    throw new Error(`API Error: ${errorData.error.message}`);
+                    throw new Error(`API Error: ${errorData.error}`);
                 }
 
                 const data = await response.json();
-                return data.candidates[0].content.parts[0].text;
+                return data.candidates?.[0]?.content?.parts?.[0]?.text || "No response from Gemini.";
             } catch (error) {
                 console.error("Gemini API call failed:", error);
                 alert(`Error communicating with the AI. Details: ${error.message}`);
@@ -338,6 +355,9 @@
 
             try {
                 const resumeText = await getPdfText(resumeFile);
+                const maxLength = 6000;
+                const safeResumeText = resumeText.slice(0, maxLength);
+                const safeJobDesc = jobDesc.slice(0, maxLength);
                 
                 const prompt = `
                     Analyze the following resume and job description for ATS compatibility. 
@@ -346,19 +366,23 @@
                     Format the response as a JSON object with two keys: "matchPercentage" (a number) and "analysis" (a string).
 
                     **Resume:**
-                    ${resumeText}
+                    ${safeResumeText}
 
                     **Job Description:**
-                    ${jobDesc}
+                    ${safeJobDesc}
                 `;
 
                 const resultText = await callGeminiAPI(prompt);
                 loader.classList.add('hidden');
 
                 if (resultText) {
-                    const cleanedResultText = resultText.replace(/```json/g, '').replace(/```/g, '').trim();
-                    const resultJson = JSON.parse(cleanedResultText);
-                    
+                    function extractJson(text) {
+                        const jsonMatch = text.match(/\{[\s\S]*?\}/);
+                        if (!jsonMatch) throw new Error("No JSON object found in Gemini response.");
+                        return JSON.parse(jsonMatch[0]);
+                    }
+                    const resultJson = extractJson(resultText);
+                                        
                     const percentage = resultJson.matchPercentage || 0;
                     const analysis = resultJson.analysis || "Could not generate analysis.";
 
